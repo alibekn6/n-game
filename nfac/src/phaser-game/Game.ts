@@ -15,18 +15,18 @@ class MainScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image('player_idle', '/sprite.png');
-    this.load.image('player_walk1', '/walking sprite1.png');
-    this.load.image('player_walk2', '/walking sprite2.png');
-    this.load.image('player_walk_left1', '/walking-sprite-left1.png');
-    this.load.image('player_walk_left2', '/walking-sprite-left2.png');
-    this.load.image('player_walk_right1', '/walking-sprite-right1.png');
-    this.load.image('player_walk_right2', '/walking-sprite-right2.png');
+    this.load.image('player_idle', '/walking/static.png');
     this.load.image('cloud1', '/street/cloud.png');
     this.load.image('cloud2', '/street/cloud2.png');
     this.load.image('cloud3', '/street/cloud3.png');
     this.load.image('satbayev', '/street/satbayev.png');
     this.load.image('unihub', '/street/unihub.png');
+    this.load.image('cu', '/street/cu.png');
+    // Новые кадры ходьбы
+    for (let i = 1; i <= 4; i++) {
+      this.load.image(`walk_right${i}`, `/walking/walking-right${i}.png`);
+      this.load.image(`walk_left${i}`, `/walking/walking-left${i}.png`);
+    }
   }
 
   create() {
@@ -66,7 +66,6 @@ class MainScene extends Phaser.Scene {
     const satbayevImgY = markY + markHeight / 2;
     const satbayevImg = this.add.image(width * 0.18, satbayevImgY, 'satbayev').setOrigin(0.5, 1).setScale(0.4).setDepth(1);
     this.satbayev = satbayevImg;
-    // Зона входа — по всей ширине здания, высота 80px чуть выше центра разметки
     const satbayevZoneWidth = satbayevImg.displayWidth;
     const satbayevZoneHeight = 80;
     this.satbayevZone = new Phaser.Geom.Rectangle(
@@ -76,6 +75,19 @@ class MainScene extends Phaser.Scene {
       satbayevZoneHeight
     );
     this.enterButton = null;
+
+    // Здание CU по центру
+    const cuImg = this.add.image(width * 0.5, satbayevImgY, 'cu').setOrigin(0.5, 1).setScale(0.4).setDepth(1);
+    this.cu = cuImg;
+    const cuZoneWidth = cuImg.displayWidth;
+    const cuZoneHeight = 80;
+    this.cuZone = new Phaser.Geom.Rectangle(
+      cuImg.x - cuZoneWidth / 2,
+      satbayevImgY - cuZoneHeight,
+      cuZoneWidth,
+      cuZoneHeight
+    );
+    this.enterCuButton = null;
 
     // Здание UniHub справа на дороге
     const unihubImg = this.add.image(width * 0.82, satbayevImgY, 'unihub').setOrigin(0.5, 1).setScale(0.4).setDepth(1);
@@ -94,6 +106,10 @@ class MainScene extends Phaser.Scene {
     this.walkFrame = 0;
     this.walkTimer = 0;
     this.lastDirection = 'right';
+
+    // Массивы кадров для анимации
+    this.walkFramesRight = ['walk_right1', 'walk_right2', 'walk_right3', 'walk_right4'];
+    this.walkFramesLeft = ['walk_left1', 'walk_left2', 'walk_left3', 'walk_left4'];
 
     this.cursors = this.input.keyboard.createCursorKeys();
 
@@ -161,6 +177,11 @@ class MainScene extends Phaser.Scene {
   unihub: Phaser.GameObjects.Image | null = null;
   unihubZone: Phaser.Geom.Rectangle | null = null;
   enterUnihubButton: Phaser.GameObjects.Text | null = null;
+  cu: Phaser.GameObjects.Image | null = null;
+  cuZone: Phaser.Geom.Rectangle | null = null;
+  enterCuButton: Phaser.GameObjects.Text | null = null;
+  walkFramesRight: string[] = [];
+  walkFramesLeft: string[] = [];
 
   update(time: number, delta: number) {
     if (!this.cursors) return;
@@ -179,14 +200,14 @@ class MainScene extends Phaser.Scene {
     if (velocity !== 0 && direction) {
       this.lastDirection = direction;
       this.walkTimer += delta;
-      if (this.walkTimer > 200) {
-        this.walkFrame = (this.walkFrame + 1) % 2;
+      if (this.walkTimer > 120) {
+        this.walkFrame = (this.walkFrame + 1) % 4;
         this.walkTimer = 0;
       }
       if (direction === 'left') {
-        this.player.setTexture(this.walkFrame === 0 ? 'player_walk_left1' : 'player_walk_left2');
+        this.player.setTexture(this.walkFramesLeft[this.walkFrame]);
       } else {
-        this.player.setTexture(this.walkFrame === 0 ? 'player_walk_right1' : 'player_walk_right2');
+        this.player.setTexture(this.walkFramesRight[this.walkFrame]);
       }
     } else {
       this.player.setTexture('player_idle');
@@ -245,6 +266,27 @@ class MainScene extends Phaser.Scene {
         }
       }
     }
+
+    // Проверка на приближение к CU
+    if (this.cuZone) {
+      const playerRect = new Phaser.Geom.Rectangle(this.player.x - 20, this.player.y - 20, 40, 40);
+      if (Phaser.Geom.Rectangle.Overlaps(this.cuZone, playerRect)) {
+        if (!this.enterCuButton) {
+          this.enterCuButton = this.add.text(this.cu.x, this.cuZone.y + this.cuZone.height + 30, 'Зайти в CU', {
+            fontSize: '32px',
+            color: '#fff',
+            backgroundColor: '#7e5cff',
+            padding: { left: 20, right: 20, top: 10, bottom: 10 },
+          }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+          this.enterCuButton.on('pointerdown', () => this.enterCu());
+        }
+      } else {
+        if (this.enterCuButton) {
+          this.enterCuButton.destroy();
+          this.enterCuButton = null;
+        }
+      }
+    }
   }
 
   enterSatbayev() {
@@ -257,6 +299,10 @@ class MainScene extends Phaser.Scene {
     this.scene.launch('UnihubInside');
   }
 
+  enterCu() {
+    this.scene.pause();
+    this.scene.launch('CUInside');
+  }
 }
 
 // Сцена для "внутри здания"
@@ -314,6 +360,33 @@ class UnihubInside extends Phaser.Scene {
   }
 }
 
+// Сцена для "внутри CU"
+class CUInside extends Phaser.Scene {
+  constructor() {
+    super('CUInside');
+  }
+  create() {
+    const { width, height } = this.scale;
+    this.cameras.main.setBackgroundColor('#fff');
+    this.add.text(width / 2, height / 2, 'Внутри CU', {
+      fontSize: '40px',
+      color: '#222',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    // Кнопка выйти
+    const exitBtn = this.add.text(width / 2, height / 2 + 80, 'Выйти', {
+      fontSize: '32px',
+      color: '#fff',
+      backgroundColor: '#0077ff',
+      padding: { left: 20, right: 20, top: 10, bottom: 10 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    exitBtn.on('pointerdown', () => {
+      this.scene.stop();
+      this.scene.resume('MainScene');
+    });
+  }
+}
+
 // Экспорт с двумя сценами
 const { width, height } = { width: window.innerWidth, height: window.innerHeight };
 const config: Phaser.Types.Core.GameConfig = {
@@ -329,7 +402,7 @@ const config: Phaser.Types.Core.GameConfig = {
       debug: false,
     },
   },
-  scene: [MainScene, SatbayevInside, UnihubInside],
+  scene: [MainScene, SatbayevInside, UnihubInside, CUInside],
   scale: {
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
