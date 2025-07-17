@@ -9,9 +9,15 @@ class MainScene extends Phaser.Scene {
   private rightArrow?: Phaser.GameObjects.Rectangle;
   private leftPressed = false;
   private rightPressed = false;
+  private playerPosition: { x: number; y: number } | null = null;
 
   constructor() {
     super('MainScene');
+  }
+
+  init(data: any) {
+    // Receive player position from other scenes
+    this.playerPosition = data.playerPosition || null;
   }
 
   preload() {
@@ -22,6 +28,15 @@ class MainScene extends Phaser.Scene {
     this.load.image('satbayev', '/street/satbayev.png');
     this.load.image('unihub', '/street/unihub.png');
     this.load.image('cu', '/street/cu.png');
+    
+    // Load corridor with error handling
+    this.load.image('coridor', '/satbayev/coridor.png');
+    this.load.on('loaderror', (file: any) => {
+      if (file.key === 'coridor') {
+        console.warn('Failed to load corridor image:', file.url);
+      }
+    });
+    
     // Новые кадры ходьбы
     for (let i = 1; i <= 4; i++) {
       this.load.image(`walk_right${i}`, `/walking/walking-right${i}.png`);
@@ -49,7 +64,11 @@ class MainScene extends Phaser.Scene {
     }
 
     // Персонаж на дороге
-    this.player = this.physics.add.sprite(width / 2, roadY + roadHeight * 0.2, 'player_idle');
+    this.player = this.physics.add.sprite(
+      this.playerPosition ? this.playerPosition.x : width / 2,
+      this.playerPosition ? this.playerPosition.y : roadY + roadHeight * 0.2,
+      'player_idle'
+    );
     this.player.setScale(0.15);
     this.player.setCollideWorldBounds(true);
     this.player.setDepth(2);
@@ -184,7 +203,7 @@ class MainScene extends Phaser.Scene {
   walkFramesLeft: string[] = [];
 
   update(time: number, delta: number) {
-    if (!this.cursors) return;
+    if (!this.cursors || !this.player) return; // Add null check for player
     let velocity = 0;
     let direction: 'left' | 'right' | null = null;
     if (this.cursors.left?.isDown || this.leftPressed) {
@@ -225,7 +244,7 @@ class MainScene extends Phaser.Scene {
     }
 
     // Проверка на приближение к зданию
-    if (this.satbayevZone) {
+    if (this.satbayevZone && this.player) {
       // Прямоугольник персонажа (центр в player.x, player.y, размер 40x40)
       const playerRect = new Phaser.Geom.Rectangle(this.player.x - 20, this.player.y - 20, 40, 40);
       if (Phaser.Geom.Rectangle.Overlaps(this.satbayevZone, playerRect)) {
@@ -247,7 +266,7 @@ class MainScene extends Phaser.Scene {
     }
 
     // Проверка на приближение к UniHub
-    if (this.unihubZone) {
+    if (this.unihubZone && this.player) {
       const playerRect = new Phaser.Geom.Rectangle(this.player.x - 20, this.player.y - 20, 40, 40);
       if (Phaser.Geom.Rectangle.Overlaps(this.unihubZone, playerRect)) {
         if (!this.enterUnihubButton) {
@@ -268,7 +287,7 @@ class MainScene extends Phaser.Scene {
     }
 
     // Проверка на приближение к CU
-    if (this.cuZone) {
+    if (this.cuZone && this.player) {
       const playerRect = new Phaser.Geom.Rectangle(this.player.x - 20, this.player.y - 20, 40, 40);
       if (Phaser.Geom.Rectangle.Overlaps(this.cuZone, playerRect)) {
         if (!this.enterCuButton) {
@@ -290,8 +309,12 @@ class MainScene extends Phaser.Scene {
   }
 
   enterSatbayev() {
-    this.scene.pause();
-    this.scene.launch('SatbayevInside');
+    // Store player position before entering building
+    const playerPosition = {
+      x: this.player.x,
+      y: this.player.y
+    };
+    this.scene.start('SatbayevInside', { playerPosition });
   }
 
   enterUnihub() {
@@ -307,29 +330,95 @@ class MainScene extends Phaser.Scene {
 
 // Сцена для "внутри здания"
 class SatbayevInside extends Phaser.Scene {
+  private player!: Phaser.Physics.Arcade.Sprite;
+  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private playerPosition: { x: number; y: number } | null = null;
+
   constructor() {
     super('SatbayevInside');
   }
+
+  init(data: any) {
+    // Receive player position from MainScene
+    this.playerPosition = data.playerPosition || null;
+  }
+
+  preload() {
+    // Backup loading if texture not in cache
+    if (!this.textures.exists('coridor')) {
+      this.load.image('coridor', '/satbayev/coridor.png');
+    }
+    // Load player idle texture if not already loaded
+    if (!this.textures.exists('player_idle')) {
+      this.load.image('player_idle', '/walking/static.png');
+    }
+  }
+
   create() {
     const { width, height } = this.scale;
-    this.cameras.main.setBackgroundColor('#fff');
-    this.add.text(width / 2, height / 2, 'Внутри сатбаев уник', {
-      fontSize: '40px',
-      color: '#222',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
 
-    // Кнопка выйти
-    const exitBtn = this.add.text(width / 2, height / 2 + 80, 'Выйти', {
+    // Check if texture exists before using it
+    if (!this.textures.exists('coridor')) {
+      console.warn('Corridor texture missing! Showing fallback background.');
+      // Create a fallback background
+      const graphics = this.add.graphics();
+      graphics.fillStyle(0x87CEEB, 1); // Sky blue
+      graphics.fillRect(0, 0, width, height);
+      graphics.fillStyle(0x8B4513, 1); // Brown floor
+      graphics.fillRect(0, height * 0.7, width, height * 0.3);
+      
+      // Add some corridor-like elements
+      graphics.fillStyle(0xFFFFFF, 1);
+      for (let i = 0; i < 5; i++) {
+        graphics.fillRect(width * 0.1 + i * width * 0.15, height * 0.2, width * 0.1, height * 0.4);
+      }
+      
+      // Add text
+      this.add.text(width / 2, height / 2, 'Коридор Сатпаев', {
+        fontSize: '48px',
+        color: '#000',
+        fontStyle: 'bold',
+      }).setOrigin(0.5);
+    } else {
+      // Show corridor image as background, scaled to cover the scene
+      this.add.image(width / 2, height / 2, 'coridor')
+        .setDisplaySize(width, height)  // Stretch to fit screen
+        .setScrollFactor(0);
+    }
+
+    // Add player character in the corridor
+    this.player = this.physics.add.sprite(width * 0.2, height * 0.7, 'player_idle');
+    this.player.setScale(0.5); // Much bigger scale
+    this.player.setCollideWorldBounds(true);
+    this.player.setDepth(10); // Ensure player is on top
+
+    // Add keyboard controls
+    this.cursors = this.input.keyboard.createCursorKeys();
+
+    // Exit button at the bottom center
+    const exitBtn = this.add.text(width / 2, height - 60, 'Выйти', {
       fontSize: '32px',
       color: '#fff',
       backgroundColor: '#0077ff',
       padding: { left: 20, right: 20, top: 10, bottom: 10 },
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(20); // Above player
     exitBtn.on('pointerdown', () => {
       this.scene.stop();
-      this.scene.resume('MainScene');
+      // Pass player position back to MainScene
+      this.scene.start('MainScene', { playerPosition: this.playerPosition });
     });
+  }
+
+  update(time: number, delta: number) {
+    if (!this.cursors || !this.player) return;
+
+    let velocity = 0;
+    if (this.cursors.left?.isDown) {
+      velocity = -160;
+    } else if (this.cursors.right?.isDown) {
+      velocity = 160;
+    }
+    this.player.setVelocityX(velocity);
   }
 }
 
@@ -355,7 +444,7 @@ class UnihubInside extends Phaser.Scene {
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     exitBtn.on('pointerdown', () => {
       this.scene.stop();
-      this.scene.resume('MainScene');
+      this.scene.start('MainScene'); // Use start instead of resume
     });
   }
 }
@@ -382,7 +471,7 @@ class CUInside extends Phaser.Scene {
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     exitBtn.on('pointerdown', () => {
       this.scene.stop();
-      this.scene.resume('MainScene');
+      this.scene.start('MainScene'); // Use start instead of resume
     });
   }
 }
