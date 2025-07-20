@@ -5,8 +5,8 @@ const getGameSize = () => ({ width: window.innerWidth, height: window.innerHeigh
 class MainScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private leftArrow?: Phaser.GameObjects.Rectangle;
-  private rightArrow?: Phaser.GameObjects.Rectangle;
+  private leftArrow?: Phaser.GameObjects.Polygon;
+  private rightArrow?: Phaser.GameObjects.Polygon;
   private leftPressed = false;
   private rightPressed = false;
   private playerPosition: { x: number; y: number } | null = null;
@@ -130,6 +130,15 @@ class MainScene extends Phaser.Scene {
       cuZoneHeight
     );
     this.enterCuButton = null;
+
+    // Add escooter mini-game button
+    const escooterButton = this.add.text(width * 0.5, height * 0.1, '🚗 Play Escooter Mini-Game', {
+      fontSize: '24px',
+      color: '#fff',
+      backgroundColor: '#ff6600',
+      padding: { left: 20, right: 20, top: 10, bottom: 10 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(10);
+    escooterButton.on('pointerdown', () => this.startEscooterGame());
 
     // Здание UniHub справа на дороге
     const unihubImg = this.add.image(width * 0.82, satbayevImgY, 'unihub').setOrigin(0.5, 1).setScale(0.4).setDepth(1);
@@ -343,6 +352,15 @@ class MainScene extends Phaser.Scene {
   walkFrame: number = 0;
   walkTimer: number = 0;
   lastDirection: 'left' | 'right' = 'right';
+  idleMessages: string[] = [
+    'че встал',
+    'чо там?',
+    'двигайся уже',
+    'заснул ?',
+    'ты там?'
+  ];
+  idleTimer: number = 0;
+  idleBubble: Phaser.GameObjects.Text | null = null;
 
   clouds: Phaser.GameObjects.Image[] = [];
   satbayev: Phaser.GameObjects.Image | null = null;
@@ -379,6 +397,18 @@ class MainScene extends Phaser.Scene {
     }
     this.player.setVelocityX(velocity);
 
+    // Check if player is moving
+    const isMoving = velocity !== 0;
+
+    // Reset idle timer and bubble when moving
+    if (isMoving) {
+      this.idleTimer = 0;
+      if (this.idleBubble) {
+        this.idleBubble.destroy();
+        this.idleBubble = null;
+      }
+    }
+
     // Анимация ходьбы
     if (velocity !== 0 && direction) {
       this.lastDirection = direction;
@@ -396,6 +426,29 @@ class MainScene extends Phaser.Scene {
       this.player.setTexture('player_idle');
       this.walkFrame = 0;
       this.walkTimer = 0;
+      
+      // Track idle time
+      this.idleTimer += delta;
+      
+      // Show bubble message after 5 seconds of being idle
+      if (this.idleTimer >= 5000 && !this.idleBubble) {
+        const randomMessage = Phaser.Utils.Array.GetRandom(this.idleMessages) || this.idleMessages[0];
+        this.idleBubble = this.add.text(this.player.x, this.player.y - 80, randomMessage, {
+          fontSize: '20px',
+          color: '#000',
+          backgroundColor: '#fff',
+          padding: { left: 10, right: 10, top: 5, bottom: 5 },
+          fontStyle: 'bold'
+        }).setOrigin(0.5).setDepth(30);
+        
+        // Remove bubble after 3 seconds
+        this.time.delayedCall(3000, () => {
+          if (this.idleBubble) {
+            this.idleBubble.destroy();
+            this.idleBubble = null;
+          }
+        });
+      }
     }
 
     // Движение облаков
@@ -500,6 +553,11 @@ class MainScene extends Phaser.Scene {
     this.scene.pause();
     this.scene.launch('CUInside', { playerPosition });
   }
+
+  startEscooterGame() {
+    this.scene.pause();
+    this.scene.launch('EscooterGameScene');
+  }
 }
 
 // Сцена для "внутри здания"
@@ -517,6 +575,21 @@ class SatbayevInside extends Phaser.Scene {
   private walkRightTimer = 0;
   private walkLeftFrame = 0;
   private walkLeftTimer = 0;
+  
+  // Glass door interaction
+  private glassDoorZone: Phaser.Geom.Rectangle | null = null;
+  private enterLectureButton: Phaser.GameObjects.Text | null = null;
+  
+  // Idle bubble system
+  private idleMessages: string[] = [
+    'че встал',
+    'что делаешь?',
+    'двигайся уже',
+    'заснул что ли?',
+    'эй, ты там?'
+  ];
+  private idleTimer: number = 0;
+  private idleBubble: Phaser.GameObjects.Text | null = null;
   
   // Система здоровья и ресурсов
   hearts: number = 5;
@@ -537,37 +610,27 @@ class SatbayevInside extends Phaser.Scene {
   }
 
   preload() {
-    // Backup loading if texture not in cache
-    if (!this.textures.exists('coridor')) {
-      this.load.image('coridor', '/building/coridor.png');
-    }
-    // Load player idle texture if not already loaded
-    if (!this.textures.exists('player_idle')) {
-      this.load.image('player_idle', '/walking/static.png');
-    }
+    console.log('SatbayevInside preload() called');
+    // Load corridor texture
+    this.load.image('coridor', '/building/coridor.png');
+    console.log('Loading corridor texture from /building/coridor.png');
+    // Load player idle texture
+    this.load.image('player_idle', '/walking/static.png');
     // Load walking-up animation frames
     for (let i = 1; i <= 3; i++) {
-      if (!this.textures.exists(`walk_up${i}`)) {
-        this.load.image(`walk_up${i}`, `/walking/walking-up${i}.png`);
-      }
+      this.load.image(`walk_up${i}`, `/walking/walking-up${i}.png`);
     }
     // Load walking-down animation frames
     for (let i = 1; i <= 4; i++) {
-      if (!this.textures.exists(`walk_down${i}`)) {
-        this.load.image(`walk_down${i}`, `/walking/walking-down${i}.png`);
-      }
+      this.load.image(`walk_down${i}`, `/walking/walking-down${i}.png`);
     }
     // Load walking-right animation frames
     for (let i = 1; i <= 4; i++) {
-      if (!this.textures.exists(`walk_right${i}`)) {
-        this.load.image(`walk_right${i}`, `/walking/walking-right${i}.png`);
-      }
+      this.load.image(`walk_right${i}`, `/walking/walking-right${i}.png`);
     }
     // Load walking-left animation frames
     for (let i = 1; i <= 4; i++) {
-      if (!this.textures.exists(`walk_left${i}`)) {
-        this.load.image(`walk_left${i}`, `/walking/walking-left${i}.png`);
-      }
+      this.load.image(`walk_left${i}`, `/walking/walking-left${i}.png`);
     }
     
     // Load health and resource images
@@ -578,6 +641,10 @@ class SatbayevInside extends Phaser.Scene {
 
   create() {
     const { width, height } = this.scale;
+
+    console.log('SatbayevInside create() called');
+    console.log('Available textures:', this.textures.getTextureKeys());
+    console.log('Corridor texture exists:', this.textures.exists('coridor'));
 
     // Check if texture exists before using it
     if (!this.textures.exists('coridor')) {
@@ -599,13 +666,16 @@ class SatbayevInside extends Phaser.Scene {
       this.add.text(width / 2, height / 2, 'Коридор Сатпаев', {
         fontSize: '48px',
         color: '#000',
-        fontStyle: 'bold',
-      }).setOrigin(0.5);
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
     } else {
+      console.log('Corridor texture found! Creating background image...');
       // Show corridor image as background, scaled to cover the scene
-      this.add.image(width / 2, height / 2, 'coridor')
-        .setDisplaySize(width, height)  // Stretch to fit screen
-        .setScrollFactor(0);
+      const corridorBg = this.add.image(width / 2, height / 2, 'coridor');
+      corridorBg.setDisplaySize(width, height);  // Stretch to fit screen
+      corridorBg.setScrollFactor(0);
+      corridorBg.setDepth(0); // Ensure it's behind everything
+      console.log('Corridor background created:', corridorBg);
     }
 
     // Add player character in the corridor
@@ -613,6 +683,9 @@ class SatbayevInside extends Phaser.Scene {
     this.player.setScale(0.5); // Much bigger scale
     this.player.setCollideWorldBounds(true);
     this.player.setDepth(10); // Ensure player is on top
+
+    // Create glass door interaction zone (positioned near the center-right of the corridor)
+    this.glassDoorZone = new Phaser.Geom.Rectangle(width * 0.7, height * 0.4, 120, 80);
 
     // Add keyboard controls
     this.cursors = this.input.keyboard.createCursorKeys();
@@ -655,9 +728,7 @@ class SatbayevInside extends Phaser.Scene {
       this.scene.start('MainScene', { playerPosition: this.playerPosition });
     });
     
-    // Create health and resource UI
-    this.createHealthUI();
-    this.createResourceUI();
+    // Note: Health and resource UI methods are not needed for this scene
   }
 
   update(time: number, delta: number) {
@@ -682,6 +753,18 @@ class SatbayevInside extends Phaser.Scene {
     
     this.player.setVelocityX(velocityX);
     this.player.setVelocityY(velocityY);
+
+    // Check if player is moving
+    const isMoving = velocityX !== 0 || velocityY !== 0;
+
+    // Reset idle timer and bubble when moving
+    if (isMoving) {
+      this.idleTimer = 0;
+      if (this.idleBubble) {
+        this.idleBubble.destroy();
+        this.idleBubble = null;
+      }
+    }
 
     // Walking animations
     if (velocityY < 0) {
@@ -771,7 +854,60 @@ class SatbayevInside extends Phaser.Scene {
       // Reset scale when not moving
       const scaleFactor = 0.5 - ((this.scale.height - this.player.y) / this.scale.height) * 0.5;
       this.player.setScale(Math.max(0.15, scaleFactor));
+      
+      // Track idle time
+      this.idleTimer += delta;
+      
+      // Show bubble message after 5 seconds of being idle
+      if (this.idleTimer >= 5000 && !this.idleBubble) {
+        const randomMessage = Phaser.Utils.Array.GetRandom(this.idleMessages) || this.idleMessages[0];
+        this.idleBubble = this.add.text(this.player.x, this.player.y - 80, randomMessage, {
+          fontSize: '20px',
+          color: '#000',
+          backgroundColor: '#fff',
+          padding: { left: 10, right: 10, top: 5, bottom: 5 },
+          fontStyle: 'bold'
+        }).setOrigin(0.5).setDepth(30);
+        
+        // Remove bubble after 3 seconds
+        this.time.delayedCall(3000, () => {
+          if (this.idleBubble) {
+            this.idleBubble.destroy();
+            this.idleBubble = null;
+          }
+        });
+      }
     }
+
+    // Check glass door interaction
+    if (this.glassDoorZone && this.player) {
+      const playerRect = new Phaser.Geom.Rectangle(this.player.x - 20, this.player.y - 20, 40, 40);
+      if (Phaser.Geom.Rectangle.Overlaps(this.glassDoorZone, playerRect)) {
+        if (!this.enterLectureButton) {
+          this.enterLectureButton = this.add.text(this.glassDoorZone.x + this.glassDoorZone.width / 2, this.glassDoorZone.y + this.glassDoorZone.height + 30, 'Войти в аудиторию', {
+            fontSize: '24px',
+            color: '#fff',
+            backgroundColor: '#4CAF50',
+            padding: { left: 15, right: 15, top: 8, bottom: 8 },
+          }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(20);
+          this.enterLectureButton.on('pointerdown', () => this.enterLectureHall());
+        }
+      } else {
+        if (this.enterLectureButton) {
+          this.enterLectureButton.destroy();
+          this.enterLectureButton = null;
+        }
+      }
+    }
+  }
+
+  enterLectureHall() {
+    // Store player position before entering lecture hall
+    const playerPosition = {
+      x: this.player.x,
+      y: this.player.y
+    };
+    this.scene.start('LectureHallScene', { playerPosition });
   }
 }
 
@@ -795,6 +931,17 @@ class UnihubInside extends Phaser.Scene {
   private enterKitchenButton: Phaser.GameObjects.Text | null = null;
   private eatButton: Phaser.GameObjects.Text | null = null;
   private selectedFoodIndicator: Phaser.GameObjects.Image | null = null;
+  
+  // Idle bubble properties
+  private idleMessages: string[] = [
+    'че встал',
+    'что делаешь?',
+    'пошли гулять',
+    'скучно...',
+    'может покушаем?'
+  ];
+  private idleTimer: number = 0;
+  private idleBubble: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super('UnihubInside');
@@ -840,12 +987,12 @@ class UnihubInside extends Phaser.Scene {
     // Check if texture exists before using it
     if (!this.textures.exists('unihub_inside')) {
       console.warn('UniHub texture missing! Showing fallback background.');
-      this.cameras.main.setBackgroundColor('#fff');
-      this.add.text(width / 2, height / 2, 'Внутри UniHub', {
-        fontSize: '40px',
-        color: '#222',
-        fontStyle: 'bold',
-      }).setOrigin(0.5);
+    this.cameras.main.setBackgroundColor('#fff');
+    this.add.text(width / 2, height / 2, 'Внутри UniHub', {
+      fontSize: '40px',
+      color: '#222',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
     } else {
       // Show UniHub image as background, scaled to cover the scene
       this.add.image(width / 2, height / 2, 'unihub_inside')
@@ -916,6 +1063,18 @@ class UnihubInside extends Phaser.Scene {
     this.player.setVelocityX(velocityX);
     this.player.setVelocityY(velocityY);
 
+    // Check if player is moving
+    const isMoving = velocityX !== 0 || velocityY !== 0;
+
+    // Reset idle timer and bubble when moving
+    if (isMoving) {
+      this.idleTimer = 0;
+      if (this.idleBubble) {
+        this.idleBubble.destroy();
+        this.idleBubble = null;
+      }
+    }
+
     // Walking animations
     if (velocityY < 0) {
       // Walking up
@@ -1004,6 +1163,29 @@ class UnihubInside extends Phaser.Scene {
       // Reset scale when not moving
       const scaleFactor = 0.5 - ((this.scale.height - this.player.y) / this.scale.height) * 0.5;
       this.player.setScale(Math.max(0.15, scaleFactor));
+      
+      // Track idle time
+      this.idleTimer += delta;
+      
+      // Show bubble message after 5 seconds of being idle
+      if (this.idleTimer >= 5000 && !this.idleBubble) {
+        const randomMessage = Phaser.Utils.Array.GetRandom(this.idleMessages) || this.idleMessages[0];
+        this.idleBubble = this.add.text(this.player.x, this.player.y - 80, randomMessage, {
+          fontSize: '20px',
+          color: '#000',
+          backgroundColor: '#fff',
+          padding: { left: 10, right: 10, top: 5, bottom: 5 },
+          fontStyle: 'bold'
+        }).setOrigin(0.5).setDepth(30);
+        
+        // Remove bubble after 3 seconds
+        this.time.delayedCall(3000, () => {
+          if (this.idleBubble) {
+            this.idleBubble.destroy();
+            this.idleBubble = null;
+          }
+        });
+      }
     }
 
     // Проверка зоны кухни
@@ -1126,6 +1308,17 @@ class CUInside extends Phaser.Scene {
   private walkRightTimer = 0;
   private walkLeftFrame = 0;
   private walkLeftTimer = 0;
+  
+  // Idle bubble properties
+  private idleMessages: string[] = [
+    'че встал',
+    'что делаешь?',
+    'пошли гулять',
+    'скучно...',
+    'может покушаем?'
+  ];
+  private idleTimer: number = 0;
+  private idleBubble: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super('CUInside');
@@ -1169,12 +1362,12 @@ class CUInside extends Phaser.Scene {
     // Check if texture exists before using it
     if (!this.textures.exists('cu_inside')) {
       console.warn('CU texture missing! Showing fallback background.');
-      this.cameras.main.setBackgroundColor('#fff');
-      this.add.text(width / 2, height / 2, 'Внутри CU', {
-        fontSize: '40px',
-        color: '#222',
-        fontStyle: 'bold',
-      }).setOrigin(0.5);
+    this.cameras.main.setBackgroundColor('#fff');
+    this.add.text(width / 2, height / 2, 'Внутри CU', {
+      fontSize: '40px',
+      color: '#222',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
     } else {
       // Show CU image as background, scaled to cover the scene
       this.add.image(width / 2, height / 2, 'cu_inside')
@@ -1226,6 +1419,18 @@ class CUInside extends Phaser.Scene {
     
     this.player.setVelocityX(velocityX);
     this.player.setVelocityY(velocityY);
+
+    // Check if player is moving
+    const isMoving = velocityX !== 0 || velocityY !== 0;
+
+    // Reset idle timer and bubble when moving
+    if (isMoving) {
+      this.idleTimer = 0;
+      if (this.idleBubble) {
+        this.idleBubble.destroy();
+        this.idleBubble = null;
+      }
+    }
 
     // Walking animations
     if (velocityY < 0) {
@@ -1315,6 +1520,29 @@ class CUInside extends Phaser.Scene {
       // Reset scale when not moving
       const scaleFactor = 0.5 - ((this.scale.height - this.player.y) / this.scale.height) * 0.5;
       this.player.setScale(Math.max(0.15, scaleFactor));
+      
+      // Track idle time
+      this.idleTimer += delta;
+      
+      // Show bubble message after 5 seconds of being idle
+      if (this.idleTimer >= 5000 && !this.idleBubble) {
+        const randomMessage = Phaser.Utils.Array.GetRandom(this.idleMessages) || this.idleMessages[0];
+        this.idleBubble = this.add.text(this.player.x, this.player.y - 80, randomMessage, {
+          fontSize: '20px',
+          color: '#000',
+          backgroundColor: '#fff',
+          padding: { left: 10, right: 10, top: 5, bottom: 5 },
+          fontStyle: 'bold'
+        }).setOrigin(0.5).setDepth(30);
+        
+        // Remove bubble after 3 seconds
+        this.time.delayedCall(3000, () => {
+          if (this.idleBubble) {
+            this.idleBubble.destroy();
+            this.idleBubble = null;
+          }
+        });
+      }
     }
   }
 }
@@ -1340,6 +1568,19 @@ class UnihubKitchen extends Phaser.Scene {
     { name: 'manti', displayName: 'Манты', price: '180₸', image: 'manti' }
   ];
   private selectedFoodIndicator: Phaser.GameObjects.Image | null = null;
+  
+  // Idle bubble properties
+  private idleMessages: string[] = [
+    'че встал',
+    'что делаешь?',
+    'пошли гулять',
+    'скучно...',
+    'может пож?'
+  ];
+  private idleTimer: number = 0;
+  private idleBubble: Phaser.GameObjects.Text | null = null;
+  private resourceTimer: number = 0;
+  private eatingPoints: number = 3;
 
   constructor() {
     super('UnihubKitchen');
@@ -1462,6 +1703,18 @@ class UnihubKitchen extends Phaser.Scene {
     
     this.player.setVelocityX(velocityX);
 
+    // Check if player is moving
+    const isMoving = velocityX !== 0;
+
+    // Reset idle timer and bubble when moving
+    if (isMoving) {
+      this.idleTimer = 0;
+      if (this.idleBubble) {
+        this.idleBubble.destroy();
+        this.idleBubble = null;
+      }
+    }
+
     // Ограничение движения персонажа только по полу
     const minX = 100;
     const maxX = this.scale.width - 100;
@@ -1524,6 +1777,29 @@ class UnihubKitchen extends Phaser.Scene {
       this.walkRightTimer = 0;
       this.walkLeftFrame = 0;
       this.walkLeftTimer = 0;
+      
+      // Track idle time
+      this.idleTimer += delta;
+      
+      // Show bubble message after 5 seconds of being idle
+      if (this.idleTimer >= 5000 && !this.idleBubble) {
+        const randomMessage = Phaser.Utils.Array.GetRandom(this.idleMessages) || this.idleMessages[0];
+        this.idleBubble = this.add.text(this.player.x, this.player.y - 80, randomMessage, {
+          fontSize: '20px',
+          color: '#000',
+          backgroundColor: '#fff',
+          padding: { left: 10, right: 10, top: 5, bottom: 5 },
+          fontStyle: 'bold'
+        }).setOrigin(0.5).setDepth(30);
+        
+        // Remove bubble after 3 seconds
+        this.time.delayedCall(3000, () => {
+          if (this.idleBubble) {
+            this.idleBubble.destroy();
+            this.idleBubble = null;
+          }
+        });
+      }
     }
 
     // Resource timer logic
@@ -1672,6 +1948,16 @@ class UnihubKitchen extends Phaser.Scene {
       }
     }
   }
+
+  updateEatingUI() {
+    // Placeholder method for eating UI updates
+    console.log('Eating points:', this.eatingPoints);
+  }
+
+  loseHeart() {
+    // Placeholder method for losing hearts
+    console.log('Lost a heart!');
+  }
 }
 
 class UnihubCafeteria extends Phaser.Scene {
@@ -1686,6 +1972,17 @@ class UnihubCafeteria extends Phaser.Scene {
   private walkLeftFrame = 0;
   private walkLeftTimer = 0;
   private selectedFoodIndicator: Phaser.GameObjects.Image | null = null;
+  
+  // Idle bubble properties
+  private idleMessages: string[] = [
+    'че встал',
+    'что делаешь?',
+    'пошли гулять',
+    'скучно...',
+    'может покушаем?'
+  ];
+  private idleTimer: number = 0;
+  private idleBubble: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super('UnihubCafeteria');
@@ -1791,6 +2088,18 @@ class UnihubCafeteria extends Phaser.Scene {
     
     this.player.setVelocityX(velocityX);
 
+    // Check if player is moving
+    const isMoving = velocityX !== 0;
+
+    // Reset idle timer and bubble when moving
+    if (isMoving) {
+      this.idleTimer = 0;
+      if (this.idleBubble) {
+        this.idleBubble.destroy();
+        this.idleBubble = null;
+      }
+    }
+
     // Ограничение движения
     const minX = 100;
     const maxX = this.scale.width - 100;
@@ -1843,6 +2152,29 @@ class UnihubCafeteria extends Phaser.Scene {
       this.walkRightTimer = 0;
       this.walkLeftFrame = 0;
       this.walkLeftTimer = 0;
+      
+      // Track idle time
+      this.idleTimer += delta;
+      
+      // Show bubble message after 5 seconds of being idle
+      if (this.idleTimer >= 5000 && !this.idleBubble) {
+        const randomMessage = Phaser.Utils.Array.GetRandom(this.idleMessages) || this.idleMessages[0];
+        this.idleBubble = this.add.text(this.player.x, this.player.y - 80, randomMessage, {
+          fontSize: '20px',
+          color: '#000',
+          backgroundColor: '#fff',
+          padding: { left: 10, right: 10, top: 5, bottom: 5 },
+          fontStyle: 'bold'
+        }).setOrigin(0.5).setDepth(30);
+        
+        // Remove bubble after 3 seconds
+        this.time.delayedCall(3000, () => {
+          if (this.idleBubble) {
+            this.idleBubble.destroy();
+            this.idleBubble = null;
+          }
+        });
+      }
     }
   }
 
@@ -1855,6 +2187,691 @@ class UnihubCafeteria extends Phaser.Scene {
       ).setScale(0.08).setDepth(15);
       
       this.selectedFoodIndicator = foodIndicator;
+    }
+  }
+}
+
+// Escooter Mini-Game Scene
+class EscooterGameScene extends Phaser.Scene {
+  private player!: Phaser.Physics.Arcade.Sprite;
+  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private upPressed = false;
+  private downPressed = false;
+  private isJumping = false;
+  private isSliding = false;
+  private debugText?: Phaser.GameObjects.Text;
+  private escooterFrame: number = 1;
+  private escooterFrameTimer: number = 0;
+
+  // Game state
+  private gameTimer: number = 0;
+  private gameDuration: number = 30000; // 30 seconds
+  private score: number = 0;
+  private obstacles!: Phaser.Physics.Arcade.Group;
+  private collectibles!: Phaser.Physics.Arcade.Group;
+
+  // UI elements
+  private timerText!: Phaser.GameObjects.Text;
+  private scoreText!: Phaser.GameObjects.Text;
+
+  private harshMessages = [
+    'Ты что, не видишь препятствие?',
+    'Скорость не главное, главное - контроль!',
+    'Может, стоит сойти с самоката?',
+    'Ты точно умеешь кататься?',
+    'Попробуй еще раз, но медленнее!'
+  ];
+
+  constructor() {
+    super('EscooterGameScene');
+  }
+
+  preload() {
+    // Load assets
+    this.load.image('scooter', '/escooter-minigame/escooter-sprite-1.png');
+    this.load.image('bug', '/escooter-minigame/bug.PNG');
+    this.load.image('pizza', '/escooter-minigame/pizza.png');
+    this.load.image('deadline', '/escooter-minigame/deadline.png');
+    this.load.image('paper', '/escooter-minigame/paper.png');
+    this.load.image('energy', '/escooter-minigame/energy-drink-can.PNG');
+    
+    // Load escooter sprites
+    this.load.image('escooter-sprite-1', '/escooter-minigame/escooter-sprite-1.png');
+    this.load.image('escooter-sprite-2', '/escooter-minigame/escooter-sprite-2.png');
+    this.load.image('escooter-sprite-3', '/escooter-minigame/escooter-sprite-3.png');
+    
+    // Load obstacles
+    this.load.image('low-obstacle', '/obstacles/low-obstacle.png');
+    this.load.image('high-obstacle', '/obstacles/high-obstacle.png');
+    
+    // Load collectibles
+    this.load.image('energy-drink', '/collectibles/energy-drink.png');
+  }
+
+  create() {
+    const { width, height } = this.scale;
+
+    // Create background using the existing road style
+    const bg = this.add.graphics();
+    bg.fillStyle(0x87ceeb, 1); // Sky blue
+    bg.fillRect(0, 0, width, height);
+    
+    // Road at bottom
+    const roadHeight = height * 0.15;
+    const roadY = height - roadHeight;
+    bg.fillStyle(0x444444, 1);
+    bg.fillRect(0, roadY, width, roadHeight);
+    
+    // Road markings
+    bg.fillStyle(0xffff00, 1);
+    const markWidth = 60;
+    const markHeight = 10;
+    const markY = roadY + roadHeight / 2 - markHeight / 2;
+    for (let x = 0; x < width; x += 120) {
+      bg.fillRect(x + 20, markY, markWidth, markHeight);
+    }
+
+    // Create player (escooter)
+    this.player = this.physics.add.sprite(200, roadY - 20, 'escooter-sprite-1');
+    this.player.setScale(0.3);
+    this.player.setCollideWorldBounds(true);
+
+    // Create groups
+    this.obstacles = this.physics.add.group();
+    this.collectibles = this.physics.add.group();
+
+    // Setup collisions
+    // this.physics.add.overlap(this.player, this.obstacles, this.hitObstacle, undefined, this);
+    this.physics.add.overlap(this.player, this.collectibles, this.collectItem, undefined, this);
+
+    // Setup controls
+    this.cursors = this.input.keyboard.createCursorKeys();
+
+    // Touch controls
+    this.setupTouchControls();
+
+    // UI
+    this.setupUI();
+
+    // Start spawning
+    this.spawnObstacles();
+    this.spawnCollectibles();
+  }
+
+  setupTouchControls() {
+    const { width, height } = this.scale;
+    const buttonSize = 80;
+
+    // Jump button (up)
+    this.add.rectangle(width * 0.8, height - 150, buttonSize, buttonSize, 0x00ff00, 0.5)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(20)
+      .on('pointerdown', () => { this.upPressed = true; })
+      .on('pointerup', () => { this.upPressed = false; })
+      .on('pointerout', () => { this.upPressed = false; });
+
+    // Slide button (down)
+    this.add.rectangle(width * 0.8, height - 50, buttonSize, buttonSize, 0xff0000, 0.5)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(20)
+      .on('pointerdown', () => { this.downPressed = true; })
+      .on('pointerup', () => { this.downPressed = false; })
+      .on('pointerout', () => { this.downPressed = false; });
+  }
+
+  setupUI() {
+    const { width } = this.scale;
+    
+    this.timerText = this.add.text(width - 20, 20, '30', {
+      fontSize: '32px',
+      color: '#fff',
+      fontStyle: 'bold'
+    }).setOrigin(1, 0).setDepth(20);
+
+    this.scoreText = this.add.text(20, 20, 'Score: 0', {
+      fontSize: '24px',
+      color: '#fff'
+    }).setDepth(20);
+  }
+
+  spawnObstacles() {
+    const { width, height } = this.scale;
+    
+    // Define obstacle types with their properties
+    const obstacleTypes = [
+      { type: 'pizza', height: 'low', y: height * 0.85, scale: 0.08 },     // Low obstacle - jump over (on ground)
+      { type: 'paper', height: 'low', y: height * 0.85, scale: 0.12 },     // Low obstacle - jump over (on ground)
+      { type: 'deadline', height: 'high', y: height * 0.6, scale: 0.2 },   // High obstacle - duck under (head level)
+      { type: 'bug', height: 'high', y: height * 0.6, scale: 0.15 }        // High obstacle - duck under (head level)
+    ];
+    
+    const spawnObstacle = () => {
+      if (this.gameTimer >= this.gameDuration) return;
+
+      const obstacleData = Phaser.Utils.Array.GetRandom(obstacleTypes);
+      const obstacle = this.obstacles.create(width + 50, obstacleData.y, obstacleData.type);
+      obstacle.setScale(obstacleData.scale);
+      obstacle.setVelocityX(-500); // Move from right to left (faster)
+      
+      // Store obstacle height type for collision detection
+      obstacle.setData('height', obstacleData.height);
+      obstacle.setData('removeAt', -100);
+      
+      // Add visual indicator for obstacle type
+      if (obstacleData.height === 'high') {
+        // Add a small red dot above high obstacles
+        this.add.circle(obstacle.x, obstacle.y - 30, 5, 0xff0000).setDepth(15);
+      } else {
+        // Add a small green dot above low obstacles
+        this.add.circle(obstacle.x, obstacle.y - 30, 5, 0x00ff00).setDepth(15);
+      }
+    };
+
+    // Spawn obstacles every second, increasing frequency every 5 seconds
+    const baseInterval = 3000; // 1 per 3 seconds (even slower)
+    const difficultyLevel = Math.floor(this.gameTimer / 5000); // Every 5 seconds
+    const spawnInterval = Math.max(1200, baseInterval - (difficultyLevel * 200)); // Even slower increase
+    
+    this.time.addEvent({
+      delay: spawnInterval,
+      callback: spawnObstacle,
+      loop: true
+    });
+  }
+
+  spawnCollectibles() {
+    const { width, height } = this.scale;
+    
+    const spawnCollectible = () => {
+      if (this.gameTimer >= this.gameDuration) return;
+
+      const collectible = this.collectibles.create(width + 50, height * 0.7, 'energy');
+      collectible.setScale(0.15);
+      collectible.setVelocityX(-500);
+      collectible.setData('removeAt', -100);
+    };
+
+    // Spawn collectibles every 3-5 seconds
+    this.time.addEvent({
+      delay: Phaser.Math.Between(3000, 5000),
+      callback: spawnCollectible,
+      loop: true
+    });
+  }
+
+  update(time: number, delta: number) {
+    // Update game timer
+    this.gameTimer += delta;
+    
+    // Check for game end
+    if (this.gameTimer >= this.gameDuration) {
+      this.endGame();
+      return;
+    }
+
+    // Update timer display
+    const timeLeft = Math.ceil((this.gameDuration - this.gameTimer) / 1000);
+    this.timerText.setText(timeLeft.toString());
+
+    // Handle player movement
+    this.handlePlayerMovement();
+
+    // Update escooter animation
+    this.updateEscooterAnimation(delta);
+
+    // Manual collision detection
+    this.checkCollisions();
+
+    // Clean up off-screen objects
+    this.cleanupObjects();
+    
+    // Update debug info
+    this.updateDebugInfo();
+  }
+  
+  updateEscooterAnimation(delta: number) {
+    // Update frame timer
+    this.escooterFrameTimer += delta;
+    
+    // Change frame every 150ms for smooth animation
+    if (this.escooterFrameTimer >= 150) {
+      this.escooterFrameTimer = 0;
+      this.escooterFrame = this.escooterFrame % 3 + 1; // Cycle through 1, 2, 3
+      this.player.setTexture(`escooter-sprite-${this.escooterFrame}`);
+    }
+  }
+  
+  updateDebugInfo() {
+    // Remove old debug text if it exists
+    if (this.debugText) {
+      this.debugText.destroy();
+    }
+    
+    // Create new debug text showing player state
+    this.debugText = this.add.text(10, 10, `Jumping: ${this.isJumping}, Sliding: ${this.isSliding}`, {
+      fontSize: '16px',
+      color: '#ffff00',
+      fontStyle: 'bold'
+    }).setDepth(30);
+  }
+
+  handlePlayerMovement() {
+    // Jumping
+    if ((this.cursors.up?.isDown || this.upPressed) && !this.isJumping) {
+      this.isJumping = true;
+      this.tweens.add({
+        targets: this.player,
+        y: this.player.y - 200, // Much higher jump to clearly clear low obstacles
+        duration: 600, // Longer duration for more realistic jump
+        yoyo: true,
+        ease: 'Power2',
+        onComplete: () => { this.isJumping = false; }
+      });
+    }
+
+    // Sliding
+    if ((this.cursors.down?.isDown || this.downPressed) && !this.isSliding) {
+      this.isSliding = true;
+      this.player.setScale(0.3, 0.15);
+      this.time.delayedCall(500, () => {
+        this.player.setScale(0.3, 0.3);
+        this.isSliding = false;
+      });
+    }
+  }
+
+  checkCollisions() {
+    this.obstacles.children.each((obstacle: any) => {
+      if (!obstacle.active) return;
+      
+      const obstacleHeight = obstacle.getData('height');
+      const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, obstacle.x, obstacle.y);
+      
+      // Only check collision if obstacle is close enough
+      if (distance < 80) {
+        let shouldCollide = false;
+        
+        if (obstacleHeight === 'low') {
+          // For low obstacles, check if player is jumping high enough
+          if (!this.isJumping) {
+            shouldCollide = true;
+          } else {
+            // Check if player is high enough in their jump
+            const jumpTween = this.tweens.getTweensOf(this.player)[0];
+            if (jumpTween) {
+              const jumpProgress = jumpTween.progress;
+              // Only safe if jump is more than 30% complete and less than 70% complete
+              // This gives more time for landing without hitting obstacles
+              if (jumpProgress < 0.3 || jumpProgress > 0.7) {
+                shouldCollide = true;
+              }
+            }
+          }
+        } else if (obstacleHeight === 'high') {
+          // For high obstacles, player hits them if NOT sliding
+          // If sliding, they can pass under high obstacles
+          if (!this.isSliding) {
+            shouldCollide = true;
+          }
+        }
+        
+        if (shouldCollide) {
+          // Add debug info
+          console.log(`Collision! Height: ${obstacleHeight}, Distance: ${distance}, IsSliding: ${this.isSliding}, IsJumping: ${this.isJumping}`);
+          
+          // Add visual debug indicator
+          const debugText = this.add.text(obstacle.x, obstacle.y - 50, `HIT! ${obstacleHeight}`, {
+            fontSize: '16px',
+            color: '#ff0000',
+            fontStyle: 'bold'
+          }).setOrigin(0.5).setDepth(20);
+          
+          this.time.delayedCall(500, () => {
+            debugText.destroy();
+          });
+          
+          this.hitObstacle(this.player, obstacle);
+        }
+      }
+    });
+  }
+
+  cleanupObjects() {
+    this.obstacles.children.each((obstacle: any) => {
+      if (obstacle.x < -100) {
+        obstacle.destroy();
+      }
+    });
+
+    this.collectibles.children.each((collectible: any) => {
+      if (collectible.x < -100) {
+        collectible.destroy();
+      }
+    });
+  }
+
+  hitObstacle(player: any, obstacle: any) {
+    // Show random harsh message
+    const message = Phaser.Utils.Array.GetRandom(this.harshMessages);
+    const text = this.add.text(this.scale.width / 2, this.scale.height / 2, message, {
+      fontSize: '24px',
+      color: '#ff0000',
+      fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(30);
+
+    this.time.delayedCall(1000, () => {
+      text.destroy();
+    });
+
+    this.score -= 10;
+    this.scoreText.setText(`Score: ${this.score}`);
+    obstacle.destroy();
+  }
+
+  collectItem(player: any, collectible: any) {
+    this.score += 20;
+    this.scoreText.setText(`Score: ${this.score}`);
+    collectible.destroy();
+  }
+
+  endGame() {
+    // Show game over screen
+    const { width, height } = this.scale;
+    
+    const gameOverText = this.add.text(width / 2, height / 2 - 50, 'GAME OVER', {
+      fontSize: '48px',
+      color: '#fff',
+      fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(30);
+
+    const finalScoreText = this.add.text(width / 2, height / 2, `Final Score: ${this.score}`, {
+      fontSize: '32px',
+      color: '#fff'
+    }).setOrigin(0.5).setDepth(30);
+
+    const restartText = this.add.text(width / 2, height / 2 + 50, 'Tap to restart', {
+      fontSize: '24px',
+      color: '#00ff00'
+    }).setOrigin(0.5).setDepth(30);
+
+    // Make restart interactive
+    restartText.setInteractive({ useHandCursor: true });
+    restartText.on('pointerdown', () => {
+      this.scene.stop();
+      this.scene.resume('MainScene');
+    });
+
+    // Auto restart after 3 seconds
+    this.time.delayedCall(3000, () => {
+      this.scene.stop();
+      this.scene.resume('MainScene');
+    });
+  }
+}
+
+// Add this before the config definition
+class LectureHallScene extends Phaser.Scene {
+  private playerPosition: { x: number; y: number } | null = null;
+  private player!: Phaser.Physics.Arcade.Sprite;
+  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private upPressed = false;
+  private downPressed = false;
+  private walkUpFrame = 0;
+  private walkUpTimer = 0;
+  private walkDownFrame = 0;
+  private walkDownTimer = 0;
+  private walkRightFrame = 0;
+  private walkRightTimer = 0;
+  private walkLeftFrame = 0;
+  private walkLeftTimer = 0;
+  
+  // Idle bubble properties
+  private idleMessages: string[] = [
+    'че встал',
+    'что делаешь?',
+    'пошли гулять',
+    'скучно...',
+    'может покушаем?'
+  ];
+  private idleTimer: number = 0;
+  private idleBubble: Phaser.GameObjects.Text | null = null;
+
+  constructor() {
+    super('LectureHallScene');
+  }
+  init(data: any) {
+    this.playerPosition = data.playerPosition || null;
+  }
+  preload() {
+    this.load.image('lecture_hall', '/building/lecture-hall.png');
+    this.load.image('player_idle', '/walking/static.png');
+    // Load walking-up animation frames
+    for (let i = 1; i <= 3; i++) {
+      this.load.image(`walk_up${i}`, `/walking/walking-up${i}.png`);
+    }
+    // Load walking-down animation frames
+    for (let i = 1; i <= 4; i++) {
+      this.load.image(`walk_down${i}`, `/walking/walking-down${i}.png`);
+    }
+    // Load walking-right animation frames
+    for (let i = 1; i <= 4; i++) {
+      this.load.image(`walk_right${i}`, `/walking/walking-right${i}.png`);
+    }
+    // Load walking-left animation frames
+    for (let i = 1; i <= 4; i++) {
+      this.load.image(`walk_left${i}`, `/walking/walking-left${i}.png`);
+    }
+  }
+  create() {
+    const { width, height } = this.scale;
+    this.add.image(width / 2, height / 2, 'lecture_hall')
+      .setDisplaySize(width, height)
+      .setScrollFactor(0);
+
+    // Add player character at the bottom of the lecture hall
+    this.player = this.physics.add.sprite(width * 0.5, height * 0.85, 'player_idle');
+    this.player.setScale(0.4);
+    this.player.setCollideWorldBounds(true);
+    this.player.setDepth(10);
+
+    // Add keyboard controls
+    this.cursors = this.input.keyboard.createCursorKeys();
+
+    // Add up/down movement buttons
+    const upArrowPoints = [50, 0, 100, 100, 0, 100];
+    const upBtn = this.add.polygon(width - 100, height - 200, upArrowPoints, 0xffffff)
+      .setOrigin(0.5).setDepth(20).setAlpha(0.5).setInteractive({ useHandCursor: true });
+    upBtn.on('pointerdown', () => { this.upPressed = true; });
+    upBtn.on('pointerup', () => { this.upPressed = false; });
+    upBtn.on('pointerout', () => { this.upPressed = false; });
+
+    const downArrowPoints = [0, 0, 100, 0, 50, 100];
+    const downBtn = this.add.polygon(width - 100, height - 80, downArrowPoints, 0xffffff)
+      .setOrigin(0.5).setDepth(20).setAlpha(0.5).setInteractive({ useHandCursor: true });
+    downBtn.on('pointerdown', () => { this.downPressed = true; });
+    downBtn.on('pointerup', () => { this.downPressed = false; });
+    downBtn.on('pointerout', () => { this.downPressed = false; });
+
+    // Exit button
+    const exitBtn = this.add.text(width / 2, height - 60, 'Выйти', {
+      fontSize: '32px',
+      color: '#fff',
+      backgroundColor: '#0077ff',
+      padding: { left: 20, right: 20, top: 10, bottom: 10 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(20);
+    exitBtn.on('pointerdown', () => {
+      this.scene.start('SatbayevInside', { playerPosition: this.playerPosition });
+    });
+  }
+
+  update(time: number, delta: number) {
+    if (!this.cursors || !this.player) return;
+
+    let velocityX = 0;
+    let velocityY = 0;
+    
+    // Horizontal movement
+    if (this.cursors.left?.isDown) {
+      velocityX = -160;
+    } else if (this.cursors.right?.isDown) {
+      velocityX = 160;
+    }
+    
+    // Vertical movement
+    if (this.cursors.up?.isDown || this.upPressed) {
+      velocityY = -160;
+    } else if (this.cursors.down?.isDown || this.downPressed) {
+      velocityY = 160;
+    }
+    
+    this.player.setVelocityX(velocityX);
+    this.player.setVelocityY(velocityY);
+
+    // Check if player is moving
+    const isMoving = velocityX !== 0 || velocityY !== 0;
+
+    // Reset idle timer and bubble when moving
+    if (isMoving) {
+      this.idleTimer = 0;
+      if (this.idleBubble) {
+        this.idleBubble.destroy();
+        this.idleBubble = null;
+      }
+    }
+
+    // Walking animations with perspective scaling
+    if (velocityY < 0) {
+      // Walking up (away from camera - gets smaller)
+      this.walkUpTimer += delta;
+      if (this.walkUpTimer > 120) {
+        this.walkUpFrame = (this.walkUpFrame + 1) % 3;
+        this.walkUpTimer = 0;
+      }
+      this.player.setTexture(`walk_up${this.walkUpFrame + 1}`);
+      // Scale decreases as player moves up (gets smaller when moving away)
+      const scaleFactor = 0.4 - ((this.scale.height - this.player.y) / this.scale.height) * 0.3;
+      this.player.setScale(Math.max(0.1, scaleFactor));
+      // Reset other animations
+      this.walkDownFrame = 0;
+      this.walkDownTimer = 0;
+      this.walkRightFrame = 0;
+      this.walkRightTimer = 0;
+      this.walkLeftFrame = 0;
+      this.walkLeftTimer = 0;
+    } else if (velocityY > 0) {
+      // Walking down (towards camera - gets bigger)
+      this.walkDownTimer += delta;
+      if (this.walkDownTimer > 120) {
+        this.walkDownFrame = (this.walkDownFrame + 1) % 4;
+        this.walkDownTimer = 0;
+      }
+      this.player.setTexture(`walk_down${this.walkDownFrame + 1}`);
+      // Scale increases as player moves down (gets bigger when closer)
+      const scaleFactor = 0.4 - ((this.scale.height - this.player.y) / this.scale.height) * 0.3;
+      this.player.setScale(Math.max(0.1, scaleFactor));
+      // Reset other animations
+      this.walkUpFrame = 0;
+      this.walkUpTimer = 0;
+      this.walkRightFrame = 0;
+      this.walkRightTimer = 0;
+      this.walkLeftFrame = 0;
+      this.walkLeftTimer = 0;
+    } else if (velocityX > 0) {
+      // Walking right
+      this.walkRightTimer += delta;
+      if (this.walkRightTimer > 120) {
+        this.walkRightFrame = (this.walkRightFrame + 1) % 4;
+        this.walkRightTimer = 0;
+      }
+      this.player.setTexture(`walk_right${this.walkRightFrame + 1}`);
+      // Scale based on Y position for perspective
+      const scaleFactor = 0.4 - ((this.scale.height - this.player.y) / this.scale.height) * 0.3;
+      this.player.setScale(Math.max(0.1, scaleFactor));
+      // Reset other animations
+      this.walkUpFrame = 0;
+      this.walkUpTimer = 0;
+      this.walkDownFrame = 0;
+      this.walkDownTimer = 0;
+      this.walkLeftFrame = 0;
+      this.walkLeftTimer = 0;
+    } else if (velocityX < 0) {
+      // Walking left
+      this.walkLeftTimer += delta;
+      if (this.walkLeftTimer > 120) {
+        this.walkLeftFrame = (this.walkLeftFrame + 1) % 4;
+        this.walkLeftTimer = 0;
+      }
+      this.player.setTexture(`walk_left${this.walkLeftFrame + 1}`);
+      // Scale based on Y position for perspective
+      const scaleFactor = 0.4 - ((this.scale.height - this.player.y) / this.scale.height) * 0.3;
+      this.player.setScale(Math.max(0.1, scaleFactor));
+      // Reset other animations
+      this.walkUpFrame = 0;
+      this.walkUpTimer = 0;
+      this.walkDownFrame = 0;
+      this.walkDownTimer = 0;
+      this.walkRightFrame = 0;
+      this.walkRightTimer = 0;
+    } else {
+      // Idle
+      this.player.setTexture('player_idle');
+      // Reset all animations
+      this.walkUpFrame = 0;
+      this.walkUpTimer = 0;
+      this.walkDownFrame = 0;
+      this.walkDownTimer = 0;
+      this.walkRightFrame = 0;
+      this.walkRightTimer = 0;
+      this.walkLeftFrame = 0;
+      this.walkLeftTimer = 0;
+      // Reset scale when not moving
+      const scaleFactor = 0.4 - ((this.scale.height - this.player.y) / this.scale.height) * 0.3;
+      this.player.setScale(Math.max(0.1, scaleFactor));
+      
+      // Track idle time
+      this.idleTimer += delta;
+      
+      // Show bubble message after 5 seconds of being idle
+      if (this.idleTimer >= 5000 && !this.idleBubble) {
+        const randomMessage = Phaser.Utils.Array.GetRandom(this.idleMessages) || this.idleMessages[0];
+        this.idleBubble = this.add.text(this.player.x, this.player.y - 80, randomMessage, {
+          fontSize: '20px',
+          color: '#000',
+          backgroundColor: '#fff',
+          padding: { left: 10, right: 10, top: 5, bottom: 5 },
+          fontStyle: 'bold'
+        }).setOrigin(0.5).setDepth(30);
+        
+        // Remove bubble after 3 seconds
+        this.time.delayedCall(3000, () => {
+          if (this.idleBubble) {
+            this.idleBubble.destroy();
+            this.idleBubble = null;
+          }
+        });
+      }
+    }
+
+    // Keep player within screen bounds
+    const minX = 50;
+    const maxX = this.scale.width - 50;
+    const minY = this.scale.height * 0.7; // Bottom boundary
+    const maxY = this.scale.height * 0.95; // Top boundary
+
+    if (this.player.x < minX) {
+      this.player.x = minX;
+      this.player.setVelocityX(0);
+    } else if (this.player.x > maxX) {
+      this.player.x = maxX;
+      this.player.setVelocityX(0);
+    }
+
+    if (this.player.y < minY) {
+      this.player.y = minY;
+      this.player.setVelocityY(0);
+    } else if (this.player.y > maxY) {
+      this.player.y = maxY;
+      this.player.setVelocityY(0);
     }
   }
 }
@@ -1874,7 +2891,7 @@ const config: Phaser.Types.Core.GameConfig = {
       debug: false,
     },
   },
-  scene: [MainScene, SatbayevInside, UnihubInside, CUInside, UnihubKitchen, UnihubCafeteria],
+  scene: [MainScene, SatbayevInside, UnihubInside, CUInside, UnihubKitchen, UnihubCafeteria, EscooterGameScene, LectureHallScene],
   scale: {
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
